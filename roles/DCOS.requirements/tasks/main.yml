@@ -23,50 +23,38 @@
     enabled: false
   when: "'dnsmasq.service' in ansible_facts.services"
 
-- name: "Docker CE (stable) repository (Only non-EL systems)"
-  yum_repository:
-    name: docker-ce
-    description: Docker CE Repository
-    baseurl: "https://download.docker.com/linux/centos/7/$basearch/stable"
-    enabled: yes
-    gpgcheck: yes
-    gpgkey: https://download.docker.com/linux/centos/gpg
-  when: ansible_distribution == 'CentOS'
-
-- block:
-  - name: "Finding RHEL extras repository name (Only EL systems)"
-    shell: |
-      cat /etc/yum.repos.d/redhat* | grep -E '^\[.*extras.*\]$' | grep -vE 'debug|source' | tr -d '[|]'
-    register: rhel_exras_repo_name
-    changed_when: false
-    when: ansible_distribution == 'RedHat'
-  - name: "Docker installed"
-    yum:
-      name: "{{ dcos_docker_pkg_name }}"
-      update_cache: true
-      enablerepo: "{{ rhel_exras_repo_name.stdout | default('') }}"
-      state: present
-    register: dcos_yum_docker_install
-    until: dcos_yum_docker_install is success
-    retries: 3
-    delay: 60
-  rescue:
-    - name: Output
-      fail:
-        msg: >
-          ABORT! Could not install '{{ dcos_docker_pkg_name }}'. Please make sure RHEL *extras* repository is availble!
-      when: ansible_distribution == 'RedHat'
-    - name: Output
-      fail:
-        msg: "ABORTING! Could not install '{{ dcos_docker_pkg_name }}'."
-      when: ansible_distribution != 'RedHat'
-
-- name: "Docker running (Only on some platforms)"
+- name: "Disabled ntpd"
   systemd:
-    name: "{{ dcos_docker_service_name | default('docker') }}"
-    state: started
-    enabled: true
-  when: "'podman' not in (dcos_docker_service_name | default('docker'))"
+    name: ntpd
+    state: stopped
+    enabled: false
+  when: "'ntpd.service' in ansible_facts.services"
+
+- name: "Ensure groups 'nogroup' and 'docker' exist"
+  group:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - nogroup
+    - docker
+
+- name: "SELinux '{{ dcos['selinux_mode'] | default('permissive') }}'"
+  selinux:
+    policy: targeted
+    state: "{{ dcos['selinux_mode'] | default('permissive') }}"
+
+- name: remove old docker packages
+  yum:
+    name:
+      - docker
+      - docker-client
+      - docker-client-latest
+      - docker-common
+      - docker-latest
+      - docker-latest-logrotate
+      - docker-logrotate
+      - docker-engine
+    state: absent
 
 - name: "Install EPEL repositories for required packages"
   yum:
@@ -76,6 +64,16 @@
   until: dcos_yum_epel_install is success
   retries: 3
   delay: 60
+
+- name: "Docker CE (stable) repository (Only non-EL systems)"
+  yum_repository:
+    name: docker-ce
+    description: Docker CE Repository
+    baseurl: "https://download.docker.com/linux/centos/7/$basearch/stable"
+    enabled: yes
+    gpgcheck: yes
+    gpgkey: https://download.docker.com/linux/centos/gpg
+  when: ansible_distribution == 'CentOS'
 
 - block:
   - name: "Install required system packages"
@@ -93,15 +91,87 @@
           ABORT! Could not install '{{ dcos_prereq_packages }}'.
           Please make sure the systems repositories are enabled and reachable!
 
-- name: "SELinux '{{ dcos['selinux_mode'] | default('permissive') }}'"
-  selinux:
-    policy: targeted
-    state: "{{ dcos['selinux_mode'] | default('permissive') }}"
+- name: "Enable chronyd"
+  systemd:
+    name: chronyd
+    state: started
+    enabled: true
+  # when: "'chronyd.service' in ansible_facts.services"
 
-- name: "Ensure groups 'nogroup' and 'docker' exist"
-  group:
-    name: "{{ item }}"
+- block:
+  - name: "Finding RHEL extras repository name (Only EL systems)"
+    shell: |
+      cat /etc/yum.repos.d/redhat* | grep -E '^\[.*extras.*\]$' | grep -vE 'debug|source' | tr -d '[|]'
+    register: rhel_exras_repo_name
+    changed_when: false
+    when: ansible_distribution == 'RedHat'
+  - name: "Docker installed (Only EL systems)"
+    yum:
+      name: "{{ dcos_docker_pkg_name }}"
+      update_cache: true
+      enablerepo: "{{ rhel_exras_repo_name.stdout | default('') }}"
+      state: present
+    register: dcos_yum_docker_install
+    until: dcos_yum_docker_install is success
+    retries: 3
+    delay: 60
+    when: ansible_distribution == 'RedHat'
+  rescue:
+    - name: Output
+      fail:
+        msg: >
+          ABORT! Could not install '{{ dcos_docker_pkg_name }}'. Please make sure RHEL *extras* repository is availble!
+      when: ansible_distribution == 'RedHat'
+    - name: Output
+      fail:
+        msg: "ABORTING! Could not install '{{ dcos_docker_pkg_name }}'."
+      when: ansible_distribution != 'RedHat'
+
+- name: check packages for updates
+  shell: yum list updates | awk 'f;/Updated Packages/{f=1;}' | awk '{ print $1 }'
+  changed_when: updates.stdout_lines | length > 0
+  args:
+    warn: false
+  register: updates
+- name: display count
+  debug:
+    msg: "Found {{ updates.stdout_lines | length }} packages to be updated:\n\n{{ updates.stdout }}"
+- when: os_upgrade == true and updates.stdout_lines | length > 0
+  block:
+    - name: install updates using yum
+      yum:
+        name: "*"
+        state: latest
+        update_cache: true
+      #vars:
+      #  dcos['os_upgrade']
+    - name: check if reboot is required
+      shell: needs-restarting -r
+      failed_when: false
+      register: reboot_required
+      changed_when: false
+- when: os_upgrade == true and updates.stdout_lines | length > 0 and reboot_required.rc != 0
+  block:
+    - name: "reboot post OS upgrade"
+      reboot:
+        reboot_timeout: 3600
+      #vars:
+      #  dcos['os_upgrade']
+
+- name: "Docker installed (CentOS only)"
+  yum:
+    name: "{{ dcos_docker_pkg_name }}"
+    update_cache: true
     state: present
-  with_items:
-    - nogroup
-    - docker
+  register: dcos_yum_docker_install
+  until: dcos_yum_docker_install is success
+  retries: 3
+  delay: 60
+  when: ansible_distribution == 'CentOS'
+
+- name: "Docker running (Only on some platforms)"
+  systemd:
+    name: "{{ dcos_docker_service_name | default('docker') }}"
+    state: started
+    enabled: true
+  when: "'podman' not in (dcos_docker_service_name | default('docker'))"
