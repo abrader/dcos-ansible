@@ -1,10 +1,29 @@
-dcos_docker_pkg_name: docker
+os_upgrade: true
+
+dcos_docker_pkg_name:
+  - containerd.io-1.2.2-3.3.el7
+  - docker-ce-cli-18.09.2-3.el7
+  - docker-ce-18.09.2-3.el7
+
 dcos_prereq_packages:
   - tar
   - xz
   - unzip
   - curl
   - ipset
+  # Annoyingly needed for RHEL 7.5+ and Docker
+  - container-selinux
+  #  Preferred time syncronization software for how aggresive it is at time sync
+  - chrony
   - net-tools # `ifconfig` has been a non documented requirement for 1.12.0,
   #             fixed with https://github.com/dcos/dcos/pull/3734
   - jq # not technically required by DC/OS but by this Ansible role for checks
+  # Useful for adding YUM repos
+  - yum-utils
+  # These are useful when debugging
+  - bind-utils
+  - tcpdump
+  - vim-enhanced
+  - wget
+  - strace
+  - nmap
