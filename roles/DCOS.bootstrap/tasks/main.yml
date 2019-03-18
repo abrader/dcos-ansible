@@ -96,6 +96,13 @@
   when: "dcos.config.fault_domain_detect_contents is not defined"
   notify: trigger_new_config
 
+- name: "Place the license.txt file in the genconf directory (EE Only)"
+  copy:
+    src: files/{{ dcos['license_file'] }}
+    dest: "{{ download_path }}/genconf/{{ dcos['license_file'] }}"
+    mode: 0644
+  when: dcos['enterprise_dcos'] and dcos['license_file']
+
 - name: Generate DC/OS configuration
   template:
     src: "config.yaml.j2"

@@ -74,7 +74,7 @@
     gpgcheck: yes
     gpgkey: https://download.docker.com/linux/centos/gpg
 
-- name: "Enable RHEL7 Extras Repository"
+- name: "Enable RHEL7 Extras Repository (RHEL only)"
   yum_repository:
     name: rhel-7-server-extras-rpms
     description: "Red Hat Enterprise Linux 7 Server - Extras (RPMs)"
@@ -142,30 +142,33 @@
   args:
     warn: false
   register: updates
+  when: dcos['os_upgrade'] == true
+
 - name: display count
   debug:
     msg: "Found {{ updates.stdout_lines | length }} packages to be updated:\n\n{{ updates.stdout }}"
-- when: os_upgrade == true and updates.stdout_lines | length > 0
+  when: dcos['os_upgrade'] == true
+
+- when: dcos['os_upgrade'] == true and updates.stdout_lines | length > 0
   block:
     - name: install updates using yum
       yum:
         name: "*"
         state: latest
         update_cache: true
-      #vars:
-      #  dcos['os_upgrade']
+        exclude: containerd.io*,docker*
+      #when: dcos['os_upgrade'] == true
     - name: check if reboot is required
       shell: needs-restarting -r
       failed_when: false
       register: reboot_required
       changed_when: false
-- when: os_upgrade == true and updates.stdout_lines | length > 0 and reboot_required.rc != 0
+      #when: dcos['os_upgrade'] == true
+- when: dcos['os_upgrade'] == true and updates.stdout_lines | length > 0 and reboot_required.rc != 0
   block:
     - name: "reboot post OS upgrade"
       reboot:
         reboot_timeout: 3600
-      #vars:
-      #  dcos['os_upgrade']
 
 - name: "Docker installed (RedHat family)"
   yum:
