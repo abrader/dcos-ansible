@@ -59,16 +59,23 @@
      download_path: "{{ download_base_dir }}/{{ dcos_version_specifier }}"
      install_file: "{{ dcos['download']|basename }}"
 
-- name: Ceate install directory/genconf
+- name: Create install directory/genconf
   file: path={{ download_path }}/genconf state=directory mode=0755
 
 #  vvv DOWNLOAD vvv
 
-- name: Download installation file
-  get_url:
-    url: "{{ dcos['download'] }}"
+# - name: Download installation file
+#   get_url:
+#     url: "{{ dcos['download'] }}"
+#     dest: "{{ download_path }}/{{ install_file }}"
+#     mode: 0440
+
+- name: Copy installation file
+  copy:
+    src: "{{ dcos['download'] }}"
     dest: "{{ download_path }}/{{ install_file }}"
     mode: 0440
+
 
 # vvv POST DOWNLOAD / configuration vvv
 
@@ -98,8 +105,8 @@
 
 - name: "Place the license.txt file in the genconf directory (EE Only)"
   copy:
-    src: files/{{ dcos['license_file'] }}
-    dest: "{{ download_path }}/genconf/{{ dcos['license_file'] }}"
+    src: "{{ dcos['license_file'] }}"
+    dest: "{{ download_path }}/genconf/license.txt"
     mode: 0644
   when: dcos['enterprise_dcos'] and dcos['license_file']
 
