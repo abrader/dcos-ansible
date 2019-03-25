@@ -1,5 +1,6 @@
 group_vars/all/dcos.yaml
 inventory
+dcos.retry
 roles/*/molecule/*/.molecule/
 roles/*/molecule/*/.pytest_cache/
 **.pyc
