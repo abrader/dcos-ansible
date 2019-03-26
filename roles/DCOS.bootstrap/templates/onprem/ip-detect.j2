@@ -1,5 +1,4 @@
 #!/bin/sh
 set -o nounset -o errexit
 
-ip addr show dev ens192 primary | awk '/(inet .*\/)/ { print $2 }' | cut -d'/' -f1
-# ip addr show dev eno5 primary | awk '/(inet .*\/)/ { print $2 }' | cut -d'/' -f1
+ip addr show dev eth1 primary | awk '/(inet .*\/)/ { print $2 }' | cut -d'/' -f1
